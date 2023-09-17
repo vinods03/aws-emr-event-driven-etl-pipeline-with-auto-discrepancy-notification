@@ -1,0 +1,21 @@
+Source Event Pattern:
+
+{
+  "source": ["aws.s3"],
+  "detail-type": ["Object Created"],
+  "detail": {
+    "bucket": {
+      "name": ["fo-to-dw-orders-landing-area"]
+    },
+    "object": {
+      "key": [{
+        "prefix": "batch-completion/"
+      }]
+    }
+  }
+}
+
+
+Target:
+
+MyStateMachine-muzvwy2bg 

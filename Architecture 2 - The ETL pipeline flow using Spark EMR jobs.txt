@@ -1,0 +1,13 @@
+1. The Architecture is exactly the same as Architecture 1, except that we use Spark job on EMR instead of Glue Spark ETL job to move data from S3 landing area to S3 staging area and also from S3 Staging area into Redshift Staging area.
+
+When would we go for EMR over Glue ?
+Refer C:\Vinod\AWSDataEngineering\EMR vs GLUE.txt
+
+2. Another important difference is the use of Step Functions (State Machine) instead of Glue Workflow.
+
+In Architecture 1, the source event pattern for the Event Bridge Rule was the batch-completion file arrival in the landing area and the Target was the Glue workflow orders-workflow.
+In Architecture 2, the source event pattern remains the same and the Target is the State Machine MyStateMachine-muzvwy2bg
+
+
+3. The third important difference is in the Redshift stored procedure. We do not truncate the Redshift staging table after the final table is loaded. We need data in the Redshift staging table in order to implement bookmarking in the EMR job that moves data from S3 staging into Redshift Staging.
+

@@ -1,0 +1,80 @@
+-- customer / seller related enrichment is done here.
+
+-- below approach uses the upsert methodology. There will be only one record for one order_id / product_code combination.
+-- If any attribute changes, the record will be updated and a new record will not be inserted.
+
+-- Summary: new records will be inserted. existing records with changed attribute values will be updated. existing records with no change in attributes will not be acted upon.
+-- no deletion is done.
+
+-- Remember that we are not deleting the files in staging area like we are doing in the landing area.
+-- This is because we want to expose the staging area also to the business to look at the un-enriched records and earlier than the datawarehouse load.
+-- so, instead of this kind of upsert logic, if we simply perform insert into or even insert into select distinct from source, the entire staging data will be loaded again
+-- we will end up having duplicates i.e. more than one record per order_id, product_code combination.
+
+-- In this approach, we are still scanning the entire staging area and then handling duplicates at the Redshift level.
+-- If we could have a Glue Spark shell job instead of Glue Python shell job and enable job bookmark, we could simply do insert into and still achieve 0 duplicates.
+-- However if you consider a case where an order_id / product_code has changed dimension details at a later stage after the initial redshift load, you could still have duplicates
+-- when you perform insert into instead of upsert. This might be OK for the business. The latest timestamp record will provide thee latest details of the order_id / product_code.
+-- Or, you could use job bookmark + upsert, to ensure limited scanning of staging area and one record per order_id / product_code.
+
+CREATE OR REPLACE PROCEDURE enriched_orders_sp ()
+AS $$
+BEGIN
+
+ RAISE INFO 'STARTING THE LOAD INTO ecommerce.orders';
+ 
+ INSERT INTO ecommerce.temp_orders
+ select run_id, order_id, customer_name, customer_address, seller_name, seller_address, product_code, product_name, product_price, product_qty, order_purchase_timestamp,   processing_timestamp from ecommerce_staging.orders a left outer join ecommerce.customers b
+ on a.customer_id = b.customer_id
+ left outer join ecommerce.sellers c
+ on a.seller_id = c.seller_id;
+
+ INSERT INTO ecommerce.orders
+ select distinct run_id, order_id, customer_name, customer_address, seller_name, seller_address, product_code, product_name, product_price, product_qty, order_purchase_timestamp,     processing_timestamp, getdate() as dwh_create_timestamp
+ from ecommerce.temp_orders temp
+ where temp.order_id || temp.product_code not in (select distinct order_id || product_code from ecommerce.orders);
+
+ update ecommerce.orders target
+ set run_id = temp.run_id,
+ customer_address = temp.customer_address, 
+ seller_address = temp.seller_address,
+ customer_name = temp.customer_name,
+ seller_name = temp.seller_name,
+ product_name = temp.product_name,
+ product_price = temp.product_price,
+ product_qty = temp.product_qty,
+ order_purchase_timestamp = temp.order_purchase_timestamp,
+ processing_timestamp = temp.processing_timestamp,
+ dwh_update_timestamp = getdate()
+ from ecommerce.temp_orders temp
+ where target.order_id = temp.order_id 
+ and target.product_code = temp.product_code
+ and (target.run_id != temp.run_id
+ or target.customer_address != temp.customer_address
+ or target.seller_address != temp.seller_address
+ or target.customer_name != temp.customer_name
+ or target.seller_name != temp.seller_name
+ or target.product_name != temp.product_name
+ or target.product_price != temp.product_price
+ or target.product_qty != temp.product_qty
+ or target.order_purchase_timestamp != temp.order_purchase_timestamp
+ or target.processing_timestamp != temp.processing_timestamp);
+
+ TRUNCATE TABLE ecommerce.temp_orders;
+
+ RAISE INFO 'COMPLETED THE LOAD INTO ecommerce.orders';
+
+EXCEPTION 
+ 
+ WHEN OTHERS THEN
+ RAISE EXCEPTION 'LOAD INTO ecommerce.orders failed';
+ 
+END;
+$$ LANGUAGE plpgsql;
+
+
+------------------------------------ How to invoke / test the above stored proc: -------------------------------------------
+
+call enriched_orders_sp();
+
+

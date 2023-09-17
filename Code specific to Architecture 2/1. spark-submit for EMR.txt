@@ -1,0 +1,60 @@
+Refer C:\Vinod\SparkLocalDevelopmentFullPipelineProjectAug2023\foremr for the actual code.
+
+-- not needed as the spark-submit command can directly read the scripts in S3
+aws s3 cp s3://fo-to-dw-code-repo-bucket/emr/app.py .
+aws s3 cp s3://fo-to-dw-code-repo-bucket/emr/util.py .
+aws s3 cp s3://fo-to-dw-code-repo-bucket/emr/util.zip .
+
+1. S3 landing to s3 staging:
+
+spark-submit --master yarn --deploy-mode cluster --py-files s3://fo-to-dw-code-repo-bucket/emr/util.zip s3://fo-to-dw-code-repo-bucket/emr/app.py
+
+For debugging, it might be better to use client mode like below:
+spark-submit --master yarn --deploy-mode client --py-files s3://fo-to-dw-code-repo-bucket/emr/util.zip s3://fo-to-dw-code-repo-bucket/emr/app.py
+The relevant outputs / errors get printed on the master node where we execute the above command.
+
+2. S3 staging to Redshift staging:
+
+spark-submit --master yarn --deploy-mode cluster --py-files s3://fo-to-dw-code-repo-bucket/emr/util.zip s3://fo-to-dw-code-repo-bucket/emr/app_redshift.py
+
+For debugging, it might be better to use client mode like below:
+spark-submit --master yarn --deploy-mode client --py-files s3://fo-to-dw-code-repo-bucket/emr/util.zip s3://fo-to-dw-code-repo-bucket/emr/app_redshift.py
+The relevant outputs / errors get printed on the master node where we execute the above command.
+
+Note:
+
+1. Doesnt make sense to copy the Glue script and run it as a py file on EMR. 
+Even if you do, don't think bookmarking will work, as boomarking is at the Glue job properties level.
+Just the job.init() / commit() that are present inside the script are not enough
+
+2. Considered running the COPY statement that runs on Redshift instead of Glue or EMR but then bookmarking becomes an issue. 
+If bookmarking was possible, we can use Step Functions "Redshift Execute Statement" API to run the COPY command:
+
+copy ecommerce_staging.orders from 's3://fo-to-dw-orders-staging-area/orders/'
+            iam_role 'arn:aws:iam::100163808729:role/MyRedshiftRoleWithAdminAccess'
+            FORMAT AS PARQUET;
+
+--------------------------------------------------------------------------------------------------------------------
+
+Make sure the EMR cluster has boto3.
+
+If not, install in all the nodes 
+pip install boto3
+
+--------------------------------------------------------------------------------------------------------------------
+
+When executing job in EMR, we are using glue data catalog table and redshift staging table as the source
+We want to use glue data catalog / redshift tables instead of s3 so that the bookmarking will be easier using the run_id.
+
+--------------------------------------------------------------------------------------------------------------------
+
+The read from Glue Data Catalog was failing repeatedly when i was running the above spark-submit commands.
+The glue database itself was not recognized.
+But when i logged on to the master node, did pyspark and ran below command, it was working fine.
+So deduced that the issue was with the SparkSession object. After doing some research, changed:
+
+spark=SparkSession.builder.appName(appName).getOrCreate()
+to
+spark=SparkSession.builder.config("hive.metastore.client.factory.class","com.amazonaws.glue.catalog.metastore.AWSGlueDataCatalogHiveClientFactory").enableHiveSupport().appName(appName).getOrCreate()
+
+in util.py

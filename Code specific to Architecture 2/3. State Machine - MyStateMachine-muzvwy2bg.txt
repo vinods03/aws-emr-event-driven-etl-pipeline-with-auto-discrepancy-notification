@@ -1,0 +1,176 @@
+{
+  "Comment": "An example of the Amazon States Language for running jobs on Amazon EMR",
+  "StartAt": "start-orders-landing-area-crawler",
+  "States": {
+    "start-orders-landing-area-crawler": {
+      "Type": "Task",
+      "Parameters": {
+        "Name": "orders-landing-area-crawler"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:glue:startCrawler",
+      "Next": "get-orders-landing-area-crawler"
+    },
+    "get-orders-landing-area-crawler": {
+      "Type": "Task",
+      "Next": "check-status-orders-landing-area-crawler",
+      "Parameters": {
+        "Name": "orders-landing-area-crawler"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:glue:getCrawler"
+    },
+    "check-status-orders-landing-area-crawler": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.Crawler.State",
+          "StringEquals": "RUNNING",
+          "Next": "wait-status-orders-landing-area-crawler"
+        }
+      ],
+      "Default": "orders_landing_audit_load"
+    },
+    "orders_landing_audit_load": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "orders_landing_audit_load"
+      },
+      "Next": "Run orders s3 landing to s3 staging"
+    },
+    "wait-status-orders-landing-area-crawler": {
+      "Type": "Wait",
+      "Seconds": 10,
+      "Next": "get-orders-landing-area-crawler"
+    },
+    "Run orders s3 landing to s3 staging": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::elasticmapreduce:addStep.sync",
+      "Parameters": {
+        "ClusterId": "j-19DW3TTX6TO40",
+        "Step": {
+          "Name": "OrdersDataS3ProcessingStep",
+          "HadoopJarStep": {
+            "Jar": "command-runner.jar",
+            "Args": [
+              "spark-submit",
+              "--deploy-mode",
+              "cluster",
+              "--py-files",
+              "s3://fo-to-dw-code-repo-bucket/emr/util.zip",
+              "s3://fo-to-dw-code-repo-bucket/emr/app.py"
+            ]
+          }
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "ResultPath": "$.firstStep",
+      "Next": "start-orders-staging-area-crawler"
+    },
+    "start-orders-staging-area-crawler": {
+      "Type": "Task",
+      "Parameters": {
+        "Name": "orders-staging-area-crawler"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:glue:startCrawler",
+      "Next": "get-orders-staging-area-crawler"
+    },
+    "get-orders-staging-area-crawler": {
+      "Type": "Task",
+      "Parameters": {
+        "Name": "orders-staging-area-crawler"
+      },
+      "Resource": "arn:aws:states:::aws-sdk:glue:getCrawler",
+      "Next": "check-status-orders-staging-area-crawler"
+    },
+    "check-status-orders-staging-area-crawler": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.Crawler.State",
+          "StringEquals": "RUNNING",
+          "Next": "wait-status-orders-staging-area-crawler"
+        }
+      ],
+      "Default": "orders_staging_audit_load"
+    },
+    "wait-status-orders-staging-area-crawler": {
+      "Type": "Wait",
+      "Seconds": 10,
+      "Next": "get-orders-staging-area-crawler"
+    },
+    "orders_staging_audit_load": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "orders_staging_audit_load"
+      },
+      "Next": "Run orders s3 staging to redshift staging"
+    },
+    "Run orders s3 staging to redshift staging": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::elasticmapreduce:addStep.sync",
+      "Parameters": {
+        "ClusterId": "j-19DW3TTX6TO40",
+        "Step": {
+          "Name": "OrdersDataRedshiftProcessingStep",
+          "HadoopJarStep": {
+            "Jar": "command-runner.jar",
+            "Args": [
+              "spark-submit",
+              "--deploy-mode",
+              "cluster",
+              "--py-files",
+              "s3://fo-to-dw-code-repo-bucket/emr/util.zip",
+              "s3://fo-to-dw-code-repo-bucket/emr/app_redshift.py"
+            ]
+          }
+        }
+      },
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "IntervalSeconds": 1,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "ResultPath": "$.firstStep",
+      "Next": "orders_redshift_staging_audit_load"
+    },
+    "orders_redshift_staging_audit_load": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "orders_redshift_staging_audit_load"
+      },
+      "Next": "orders_redshift_staging_to_redshift_final"
+    },
+    "orders_redshift_staging_to_redshift_final": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "orders_redshift_staging_to_redshift_final"
+      },
+      "Next": "orders_redshift_final_audit_load"
+    },
+    "orders_redshift_final_audit_load": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::glue:startJobRun.sync",
+      "Parameters": {
+        "JobName": "orders_redshift_final_audit_load"
+      },
+      "End": true
+    }
+  }
+}
