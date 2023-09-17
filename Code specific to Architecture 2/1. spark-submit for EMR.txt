@@ -1,10 +1,3 @@
-Refer C:\Vinod\SparkLocalDevelopmentFullPipelineProjectAug2023\foremr for the actual code.
-
--- not needed as the spark-submit command can directly read the scripts in S3
-aws s3 cp s3://fo-to-dw-code-repo-bucket/emr/app.py .
-aws s3 cp s3://fo-to-dw-code-repo-bucket/emr/util.py .
-aws s3 cp s3://fo-to-dw-code-repo-bucket/emr/util.zip .
-
 1. S3 landing to s3 staging:
 
 spark-submit --master yarn --deploy-mode cluster --py-files s3://fo-to-dw-code-repo-bucket/emr/util.zip s3://fo-to-dw-code-repo-bucket/emr/app.py
